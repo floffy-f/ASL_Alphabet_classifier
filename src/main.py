@@ -26,7 +26,7 @@ def main():
     if 'load' in result.choice:
         model = HandModelKNN(1, URL, loading=True)
     if 'classify' in result.choice:
-        ask_pin()
+        ## ask_pin()
         print("Launching model")
         model = HandModelKNN(1, URL)
         model.read_cam()
