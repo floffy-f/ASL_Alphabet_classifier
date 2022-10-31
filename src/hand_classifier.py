@@ -192,6 +192,7 @@ def discriminate_a(hand, letter):
     else: return letter
 
 class HandModelKNN:
+    # Scene-lighting types
     LIGHTS = {
         "right": 0,
         "left": 1,
@@ -199,11 +200,20 @@ class HandModelKNN:
         "top": 3,
         "dif": 4,
     }
+    # Number of frames to consider a gesture "good" so to speak.
+    GOOD_COUNT_THRESH = 15
+
     def __init__(self, k, URL, loading=False, root = "train_set\\skeletons\\", word= "saw"):
+        """
+        Constructor.
+        Builds the database if needed, and then lauches the knn fit.
+        """
         self.k = k
         self.complete_word = word
 
         self.gauge = 0
+        self.gauge_bar = list("[###]")
+        self.good_count = 0
         self.URL = URL
         self.stop = len(self.complete_word)
 
@@ -242,6 +252,9 @@ class HandModelKNN:
 
     
     def build_knn(self):
+        """
+        Fit the KNN.
+        """
         if self.vecs is None:
             raise ValueError("Error while computing vetors: no skeletons in files")
         else:
@@ -265,63 +278,78 @@ class HandModelKNN:
 
     
     def read_cam(self):
+        """
+        Launch the video capture in order to fit.
+        """
         print("###### Reading camera ######")
         cap = cv2.VideoCapture(0)
-        with mp_hands.Hands(
-                    static_image_mode=False,
-                    max_num_hands=1,
-                    min_detection_confidence=.4,
-                    model_complexity=1,
-                    min_tracking_confidence=.7
-                ) as hands:
-            while cap.isOpened():
-                success, img = cap.read()
-                if not success: continue
-                img.flags.writeable = False
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                results = hands.process(img)
+        try:
+            with mp_hands.Hands(
+                        static_image_mode=False,
+                        max_num_hands=1,
+                        min_detection_confidence=.4,
+                        model_complexity=1,
+                        min_tracking_confidence=.7
+                    ) as hands:
+                while cap.isOpened():
+                    success, img = cap.read()
+                    if not success: continue
+                    img.flags.writeable = False
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    results = hands.process(img)
 
-                img.flags.writeable = True
-                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                    img.flags.writeable = True
+                    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-                if results.multi_hand_landmarks:
-                    for hand_landmarks in results.multi_hand_landmarks:
-                        mp_drawing.draw_landmarks(
-                            img,
-                            hand_landmarks,
-                            mp_hands.HAND_CONNECTIONS,
-                            mp_drawing_styles.get_default_hand_landmarks_style(),
-                            mp_drawing_styles.get_default_hand_connections_style()
-                        )
-                        hand_array = np.array([
-                            [lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark
-                            ])
-                        class_pred = self.knn.predict([pre_treatment(hand_array)])[0]
-                        proba = np.max(
-                            self.knn.predict_proba([pre_treatment(hand_array)])
-                        )
+                    if results.multi_hand_landmarks:
+                        for hand_landmarks in results.multi_hand_landmarks:
+                            mp_drawing.draw_landmarks(
+                                img,
+                                hand_landmarks,
+                                mp_hands.HAND_CONNECTIONS,
+                                mp_drawing_styles.get_default_hand_landmarks_style(),
+                                mp_drawing_styles.get_default_hand_connections_style()
+                            )
+                            hand_array = np.array([
+                                [lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark
+                                ])
+                            class_pred = self.knn.predict([pre_treatment(hand_array)])[0]
+                            proba = np.max(
+                                self.knn.predict_proba([pre_treatment(hand_array)])
+                            )
+                            img = cv2.flip(img, 1)
+                            letter = discriminate_a(hand_array, class_to_char(class_pred))
+                            cv2.putText( img
+                                       , letter + "  (~{:.1f}%)".format(proba * 100.)
+                                       , (25, 25), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
+                                       )
+                            cv2.putText( img
+                                       , ''.join(self.gauge_bar) + '-'*self.good_count
+                                       , (25, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2
+                                       )
+                            self.wait_word(letter)
+                            if self.gauge == self.stop:
+                                # self.open_browser()
+                                self.open_video()
+                                raise EndCapture
+                    else:
                         img = cv2.flip(img, 1)
-                        letter = discriminate_a(hand_array, class_to_char(class_pred))
-                        cv2.putText( img
-                                   , letter + "  (~{:.1f}%)".format(proba * 100.)
-                                   , (25, 25), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
-                                   )
-                        self.wait_word(letter)
-                        if self.gauge == self.stop:
-                            self.open_browser()
-                            break
-                else:
-                    img = cv2.flip(img, 1)
-                cv2.imshow('Show hands', img)
-                if cv2.waitKey(5) & 0xFF in (27, 113):
-                    # <esc> or Q => quit
-                    break
+                    cv2.imshow('Show hands', img)
+                    if cv2.waitKey(5) & 0xFF in (27, 113):
+                        # <esc> or Q => quit
+                        break
+        except EndCapture:
+            print()
                 
         print("###### Reading finish ######")
 
     def wait_word(self, letter):
         if letter == self.complete_word[self.gauge]:
-            self.gauge += 1
+            if self.good_count == HandModelKNN.GOOD_COUNT_THRESH:
+                self.gauge += 1
+                self.gauge_bar[self.gauge] = letter
+                self.good_count = 0
+            else: self.good_count += 1
 
     def open_browser(self, default='chrome'):
         try:
