@@ -6,10 +6,15 @@ import cv2
 import mediapipe as mp
 import webbrowser as wb
 from deprecated.sphinx import deprecated
+import pygame
+from moviepy.editor import VideoFileClip
 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
+
+# Error class to interupt capture
+class EndCapture(Exception): pass
 
 THUMB_PAIRS  = [ (0, 1)
                , (1, 2)
@@ -324,6 +329,14 @@ class HandModelKNN:
         except:
             print("Browser", default, "is not available, swithing to first available instance.")
             wb.open(self.URL)
+    
+    def open_video(self):
+        """
+        https://codeloop.org/how-to-play-mp4-videos-in-python-pyglet/
+        """
+        # Destroy previous windows
+        cv2.destroyAllWindows()
+        VideoFileClip('saw-video.mp4').preview()
 
 if __name__ == '__main__':
     instance = HandModelKNN(1, "", loading=True)
